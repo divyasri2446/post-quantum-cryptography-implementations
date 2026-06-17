@@ -1,0 +1,12 @@
+liboqs/
+pqc_env/
+
+*.exe
+*.dll
+*.a
+*.o
+*.obj
+*.pdb
+
+__pycache__/
+.vscode/
