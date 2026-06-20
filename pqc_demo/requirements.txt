@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+qiskit
+qiskit-ibm-runtime
+qiskit-aer
+git+https://github.com/open-quantum-safe/liboqs-python.git
+pycryptodome
+python-dotenv
+pydantic
+python-multipart
+sqlalchemy

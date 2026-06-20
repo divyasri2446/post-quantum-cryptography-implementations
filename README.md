@@ -1,220 +1,232 @@
-# Post-Quantum Cryptography Implementations using liboqs
+# Post-Quantum Cryptography Implementations
 
-## Overview
-
-This repository presents the implementation and demonstration of NIST-standardized Post-Quantum Cryptography (PQC) algorithms using the Open Quantum Safe (liboqs) library in both C++ and Python.
-
-The objective of this project is to understand, implement, and validate quantum-resistant cryptographic algorithms that can secure digital communication against future quantum computer attacks.
-
-The project includes implementations of:
-
-* ML-KEM-768 (FIPS 203) – Post-Quantum Key Exchange
-* ML-DSA-65 (FIPS 204) – Post-Quantum Digital Signature
-* SLH-DSA-SHA2-128f (FIPS 205) – Hash-Based Digital Signature
+> NIST-standardized post-quantum algorithms implemented in Python and C++, plus **QuantumVault** — a fully functional quantum-safe encrypted document sharing portal.
 
 ---
 
-# Why Post-Quantum Cryptography?
+## What's Inside
 
-Traditional public-key cryptographic algorithms such as RSA, Diffie-Hellman, and Elliptic Curve Cryptography (ECC) rely on mathematical problems that can be efficiently solved by large-scale quantum computers using Shor’s Algorithm.
+This repo has two parts:
 
-This creates a significant security threat, often referred to as:
+**1. Algorithm Implementations** — standalone Python and C++ implementations of all three NIST PQC standards using liboqs.
 
-**"Harvest Now, Decrypt Later"**
-
-In this scenario, encrypted data intercepted today can be stored and decrypted in the future when quantum computers become sufficiently powerful.
-
-To address this challenge, NIST has standardized a new generation of cryptographic algorithms known as Post-Quantum Cryptography (PQC).
+**2. QuantumVault** — a full-stack web app that puts those algorithms to real use: end-to-end encrypted document sharing with quantum-seeded randomness, Kyber key encapsulation, Dilithium signatures, and AES-256-GCM encryption.
 
 ---
 
-# Implemented Algorithms
+## Algorithms Implemented
 
-## 1. ML-KEM-768 (FIPS 203)
+| Algorithm | Standard | Type | Purpose |
+|-----------|----------|------|---------|
+| ML-KEM-768 (Kyber) | FIPS 203 | Key Encapsulation | Encrypting the AES key to recipient |
+| ML-DSA-65 (Dilithium) | FIPS 204 | Digital Signatures | Signing documents and verifying identity |
+| SLH-DSA-SHA2-128f | FIPS 205 | Hash-Based Signatures | Stateless hash-based signing |
 
-### Purpose
-
-ML-KEM (Module-Lattice Key Encapsulation Mechanism) is a quantum-resistant key exchange algorithm standardized by NIST.
-
-### Security Foundation
-
-* Module Learning With Errors (MLWE)
-* Lattice-Based Cryptography
-
-### Demonstrated Operations
-
-* Key Pair Generation
-* Encapsulation
-* Ciphertext Generation
-* Shared Secret Generation
-* Decapsulation
-* Shared Secret Verification
-
-### Workflow
-
-Alice:
-
-1. Generates Public Key and Secret Key
-2. Shares Public Key with Bob
-
-Bob:
-
-1. Uses Alice's Public Key
-2. Generates Ciphertext
-3. Generates Shared Secret
-
-Alice:
-
-1. Uses Ciphertext and Secret Key
-2. Recovers Shared Secret
-
-Verification:
-
-1. Bob's Shared Secret
-2. Alice's Shared Secret
-3. Equality Check
-
-Successful verification confirms a secure quantum-resistant key exchange.
+All three are quantum-resistant — secure against both classical and quantum computers.
 
 ---
 
-## 2. ML-DSA-65 (FIPS 204)
+## QuantumVault — Quantum-Safe Document Portal
 
-### Purpose
+### Live Demo
+🔗 **[quantumvault-production.up.railway.app](https://quantumvault-production.up.railway.app)**
 
-ML-DSA is a post-quantum digital signature algorithm standardized by NIST.
+### What it does
 
-### Security Foundation
+QuantumVault lets users send encrypted files to each other such that:
+- Only the intended recipient can decrypt the file
+- The server **never sees** the AES key or either secret key in plaintext
+- Every key, nonce, and ID is seeded from **real quantum randomness** (IBM Quantum hardware or Qiskit AerSimulator fallback)
+- Every encrypted package is **digitally signed** — tampering is detected before decryption
 
-* Module Learning With Errors (MLWE)
-* Lattice-Based Cryptography
+### Crypto Stack
 
-### Demonstrated Operations
+```
+Randomness:   IBM Quantum (Hadamard circuit) → HMAC-DRBG expansion
+Encryption:   AES-256-GCM  (file content)
+Key Wrapping: ML-KEM-768   (Kyber) — wraps the AES key to recipient's public key
+Signatures:   ML-DSA-65    (Dilithium) — signs the encrypted package
+Storage:      SQLite via SQLAlchemy (secret keys never stored)
+```
 
-* Key Pair Generation
-* Message Signing
-* Signature Verification
+### Encryption Flow
 
-### Workflow
+```
+SENDER
+  │
+  ├─ 1. Dilithium sign filename (identity proof)
+  ├─ 2. AES-256-GCM encrypt file with quantum-random key
+  ├─ 3. Kyber encapsulate → shared_secret + kyber_ciphertext
+  ├─ 4. XOR wrap:  wrapped_aes_key = aes_key ⊕ shared_secret
+  ├─ 5. Dilithium sign entire encrypted package
+  └─ 6. Store in DB (no raw keys ever stored)
 
-Signer:
+RECIPIENT
+  │
+  ├─ 1. Verify Dilithium signature (no key needed)
+  ├─ 2. Kyber decapsulate → recover shared_secret
+  ├─ 3. XOR unwrap: aes_key = wrapped_aes_key ⊕ shared_secret
+  └─ 4. AES-GCM decrypt → original file
+```
 
-1. Generates Public Key and Secret Key
-2. Creates Message
-3. Signs Message using Secret Key
+### Key Security Design
 
-Verifier:
+- **Kyber secret key** — returned to user once at registration, never stored on server. Saved in browser localStorage.
+- **Dilithium secret key** — same. Never stored server-side.
+- **AES key** — generated fresh per file, XOR-wrapped with Kyber shared secret, then discarded. Only the wrapped version is stored.
+- **Quantum seeding** — the app tries IBM Quantum hardware on startup. Falls back to Qiskit AerSimulator. All randomness (keys, nonces, IDs) flows from this single quantum seed via HMAC-DRBG.
 
-1. Receives Message
-2. Receives Signature
-3. Uses Public Key
-4. Verifies Signature
+### Screenshots
 
-Successful verification confirms:
+#### Sender — Signing and Encrypting
+![Sender](screenshots/sender.png)
 
-* Integrity
-* Authenticity
-* Non-Repudiation
+#### Quantum RNG — System Status
+![System](screenshots/System.png)
 
----
+#### Receiver — Signature Verification
+![Verification](screenshots/image-2.png)
 
-## 3. SLH-DSA-SHA2-128f (FIPS 205)
-
-### Purpose
-
-SLH-DSA is a hash-based post-quantum digital signature algorithm standardized by NIST.
-
-### Security Foundation
-
-* Cryptographic Hash Functions
-* Stateless Hash-Based Signatures
-
-### Demonstrated Operations
-
-* Key Pair Generation
-* Message Signing
-* Signature Verification
-* Tampering Detection
-
-### Workflow
-
-Signer:
-
-1. Generates Key Pair
-2. Signs Original Message
-
-Verifier:
-
-1. Verifies Original Message
-2. Validates Signature
-
-Tampering Test:
-
-1. Message Modified
-2. Verification Attempted Again
-3. Verification Fails
-
-This demonstrates message integrity protection and tamper detection.
+#### Receiver — Decryption
+![Decryption](screenshots/image-3.png)
 
 ---
 
-# Project Structure
+## Project Structure
 
-```text
-PostQuantumCryptography/
+```
+post-quantum-cryptography-implementations/
 │
-├── cpp/
-│   ├── mlkem_demo.cpp
-│   ├── mldsa_demo.cpp
-│   └── slhdsa_demo.cpp
+├── cpp/                        # C++ implementations
+│   ├── kyber/                  # ML-KEM-768
+│   ├── dilithium/              # ML-DSA-65
+│   └── slh_dsa/                # SLH-DSA-SHA2-128f
 │
-├── python/
-│   ├── mlkem_demo.py
-│   ├── mldsa_demo.py
-│   └── slhdsa_demo.py
+├── python/                     # Python implementations
+│   ├── kyber.py                # ML-KEM-768
+│   ├── dilithium.py            # ML-DSA-65
+│   └── slh_dsa.py              # SLH-DSA-SHA2-128f
+│
+├── pqcimp/                     # QuantumVault web app
+│   ├── main.py                 # FastAPI backend — all endpoints
+│   ├── pqc.py                  # Kyber + Dilithium via liboqs
+│   ├── aes_crypto.py           # AES-256-GCM encrypt/decrypt
+│   ├── quantum_rng.py          # IBM Quantum + HMAC-DRBG
+│   ├── storage.py              # SQLite via SQLAlchemy
+│   ├── models.py               # Pydantic request/response models
+│   ├── static/
+│   │   └── index.html          # Full frontend (single file)
+│   └── Dockerfile
 │
 ├── screenshots/
-│   ├── ml_kem.png
-│   ├── ml_dsa.png
-│   └── slh_dsa.png
-│
-├── README.md
 ├── requirements.txt
-└── .gitignore
+└── README.md
 ```
 
 ---
 
-# Technologies Used
+## Getting Started
 
-* C++
-* Python
-* liboqs (Open Quantum Safe)
-* Open Quantum Safe Framework
-* NIST PQC Standards
-* MSYS2 / MinGW
-* Git & GitHub
+### Prerequisites
+
+- Python 3.10+
+- [liboqs-python](https://github.com/open-quantum-safe/liboqs-python)
+- Docker (optional, for containerized run)
+- IBM Quantum account (optional, for real hardware randomness)
+
+### Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+`requirements.txt` includes:
+```
+fastapi
+uvicorn
+qiskit
+qiskit-ibm-runtime
+qiskit-aer
+git+https://github.com/open-quantum-safe/liboqs-python.git
+pycryptodome
+python-dotenv
+pydantic
+python-multipart
+sqlalchemy
+```
+
+### Environment Variables (optional)
+
+Create a `.env` file in `pqcimp/`:
+
+```env
+IBM_QUANTUM_TOKEN=your_token_here
+IBM_QUANTUM_INSTANCE=ibm-q/open/main
+DATABASE_PATH=quantumvault.db
+```
+
+Without `IBM_QUANTUM_TOKEN`, the app automatically falls back to Qiskit AerSimulator for quantum randomness.
+
+### Run Locally
+
+```bash
+cd pqcimp
+uvicorn main:app --reload --port 8000
+```
+
+Visit `http://localhost:8000`
+
+### Run with Docker
+
+```bash
+cd pqcimp
+docker build -t quantumvault .
+docker run -p 8000:8000 quantumvault
+```
 
 ---
 
-# Results
+## API Endpoints
 
-### ML-KEM-768
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Serves frontend |
+| GET | `/status` | Entropy source + algorithm info |
+| GET | `/random/bytes?n=32` | Generate quantum-seeded random bytes |
+| POST | `/auth/register` | Create account, returns both keypairs |
+| POST | `/auth/login` | Verify password, returns user_id |
+| GET | `/users/search?q=alice` | Search users by username |
+| POST | `/pqc/sign` | Sign a message with Dilithium |
+| POST | `/document/upload` | Encrypt and send a file |
+| GET | `/documents/inbox/{id}` | List received documents |
+| GET | `/documents/sent/{id}` | List sent documents |
+| POST | `/document/verify` | Verify Dilithium signature |
+| POST | `/document/decrypt` | Decapsulate + decrypt file |
 
-* Successful Key Pair Generation
-* Successful Encapsulation
-* Successful Decapsulation
-* Shared Secret Match Verified
+Full interactive docs available at `/docs` (Swagger UI).
 
-### ML-DSA-65
+---
 
-* Successful Key Pair Generation
-* Successful Signature Creation
-* Successful Signature Verification
+## Technologies Used
 
-### SLH-DSA-SHA2-128f
+- **Python** + **C++**
+- **FastAPI** + **Uvicorn**
+- **liboqs** (Open Quantum Safe)
+- **Qiskit** + **IBM Quantum**
+- **AES-256-GCM** (pycryptodome)
+- **SQLite** + **SQLAlchemy**
+- **Docker**
+- **Railway** (deployment)
 
-* Successful Key Pair Generation
-* Successful Signature Creation
-* Successful Signature Verification
-* Successful Tampering Detection 
+---
+
+## References
+
+- [NIST FIPS 203 — ML-KEM](https://csrc.nist.gov/pubs/fips/203/final)
+- [NIST FIPS 204 — ML-DSA](https://csrc.nist.gov/pubs/fips/204/final)
+- [NIST FIPS 205 — SLH-DSA](https://csrc.nist.gov/pubs/fips/205/final)
+- [Open Quantum Safe — liboqs](https://openquantumsafe.org/)
+- [IBM Quantum](https://quantum.ibm.com/)
+
+---
+
