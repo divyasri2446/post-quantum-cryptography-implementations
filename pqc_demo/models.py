@@ -122,6 +122,7 @@ class InboxDocument(BaseModel):
     uploader_username: str
     uploaded_at: str
     entropy_source: str
+    is_secure: str = "true"
 
 
 class InboxResponse(BaseModel):
@@ -135,6 +136,7 @@ class SentDocument(BaseModel):
     recipient_id: str
     recipient_username: str
     uploaded_at: str
+    is_secure: str = "true"
 
 
 class SentResponse(BaseModel):

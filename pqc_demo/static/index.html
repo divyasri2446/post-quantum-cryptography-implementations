@@ -589,6 +589,28 @@
     line-height: 1.7;
   }
   .empty-state .es-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+
+  /* ── API URL config banner ── */
+  #api-config-bar {
+    background: rgba(124,108,252,0.06);
+    border: 1px solid rgba(124,108,252,0.2);
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.72rem;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  #api-config-bar input {
+    flex: 1; min-width: 200px;
+    margin-bottom: 0;
+    font-size: 0.7rem;
+    padding: 0.3rem 0.6rem;
+  }
+  #api-config-bar button { width: auto; font-size: 0.7rem; padding: 0.3rem 0.7rem; }
 </style>
 </head>
 <body>
@@ -606,6 +628,8 @@
 </header>
 
 <main>
+
+
 
 <!-- ══════════════════════════════════════════════════════════
      AUTH SCREEN
@@ -669,7 +693,7 @@
     <span class="kr-icon">⚠</span>
     <div>
       <strong>Kyber secret key not found in this browser.</strong><br>
-      You won't be able to decrypt documents without it. If you registered here before, check your notes for the key starting with the hex you saved.
+      You won't be able to decrypt documents without it. If you registered here before, check your notes for the key you saved.
     </div>
   </div>
 
@@ -767,19 +791,35 @@
   <div class="tab-panel" id="tab-send">
 
     <div class="info-box">
-      Search for a recipient by username. The document is encrypted with <strong>their Kyber public key</strong> — only they can decrypt it. The server never sees the raw AES key.
+      Search and add one or more recipients. In <strong>Signed (Secure)</strong> mode, the document is encrypted with AES-256-GCM, Kyber-wrapped per recipient, and Dilithium-signed — only the intended recipient can decrypt and verify authenticity. In <strong>Encrypted only</strong> mode, the document is still encrypted but carries no sender signature.
     </div>
 
     <div class="card">
       <div class="card-header">
         <div class="card-icon icon-green">📤</div>
         <div>
-          <div class="card-title">Send Encrypted Document</div>
-          <div class="card-sub">AES-256-GCM → Kyber KEM to recipient → Dilithium signed</div>
+          <div class="card-title">Send Document</div>
+          <div class="card-sub" id="send-mode-sub">AES-256-GCM → Kyber KEM per recipient → Dilithium signed</div>
         </div>
       </div>
 
-      <label>Search recipient by username</label>
+      <label>Send mode</label>
+      <div style="display:flex;gap:0;margin-bottom:1.2rem;border:1px solid var(--border);border-radius:9px;overflow:hidden">
+        <button id="mode-btn-encrypted" onclick="setSendMode('encrypted')"
+          style="flex:1;padding:0.75rem 1rem;background:transparent;border:none;border-right:1px solid var(--border);
+                 cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:0.2rem;transition:background 0.15s">
+          <span id="mode-enc-label" style="font-family:var(--sans);font-size:0.82rem;font-weight:700;color:var(--muted)">🔒 Send</span>
+          <span style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);text-align:center;line-height:1.4">AES-256-GCM + Kyber KEM<br>Encrypted, no signature</span>
+        </button>
+        <button id="mode-btn-signed" onclick="setSendMode('signed')"
+          style="flex:1;padding:0.75rem 1rem;background:rgba(124,108,252,0.1);border:none;
+                 cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:0.2rem;transition:background 0.15s">
+          <span id="mode-sig-label" style="font-family:var(--sans);font-size:0.82rem;font-weight:700;color:var(--accent)">🔐 Send Securely</span>
+          <span style="font-family:var(--mono);font-size:0.6rem;color:var(--accent);opacity:0.7;text-align:center;line-height:1.4">AES-256-GCM + Kyber KEM + Dilithium<br>Encrypted &amp; signed</span>
+        </button>
+      </div>
+
+      <label>Search recipients by username</label>
       <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem">
         <input type="text" id="recipient-search" placeholder="e.g. alice" style="margin-bottom:0;flex:1"
                oninput="searchRecipients()">
@@ -787,34 +827,37 @@
 
       <div id="recipient-results"></div>
 
-      <div id="selected-recipient-banner" style="display:none;margin-bottom:0.9rem">
+      <div id="selected-recipients-banner" style="display:none;margin-bottom:0.9rem">
         <div class="success-box" style="margin-bottom:0">
-          ✓ Sending to: <strong id="selected-recipient-name">—</strong>
-          <span style="color:var(--muted);font-size:0.68rem;margin-left:0.5rem" id="selected-recipient-id"></span>
-          <button class="btn-ghost btn-sm" style="margin-left:0.5rem;float:right" onclick="clearRecipient()">Change</button>
+          ✓ Sending to: <span id="selected-recipients-list"></span>
+          <button class="btn-ghost btn-sm" style="margin-left:0.5rem;float:right" onclick="clearRecipients()">Clear all</button>
         </div>
       </div>
 
-      <label>Your Dilithium Secret Key</label>
-      <input type="text" id="upload-sk" placeholder="Your dilithium_secret_key (auto-filled if you registered here)">
-
-      <label>File to encrypt</label>
-      <input type="file" id="upload-file">
-
-      <button class="btn-primary" onclick="uploadDocument()">🔒 Encrypt & Send</button>
-
-      <div class="steps" style="margin-top:0.85rem">
-        <div class="step-item" id="s1"><div class="step-dot"></div> Sign filename (Dilithium identity proof)</div>
-        <div class="step-item" id="s2"><div class="step-dot"></div> AES-256-GCM encrypt with quantum key</div>
-        <div class="step-item" id="s3"><div class="step-dot"></div> Kyber-encapsulate AES key to recipient's public key</div>
-        <div class="step-item" id="s4"><div class="step-dot"></div> Dilithium sign the encrypted package</div>
-        <div class="step-item" id="s5"><div class="step-dot"></div> Deliver to recipient's inbox</div>
+      <!-- Dilithium SK: only shown in 'signed' mode -->
+      <div id="upload-sk-row">
+        <label id="upload-sk-label">Your Dilithium Secret Key</label>
+        <input type="text" id="upload-sk" placeholder="Your dilithium_secret_key (auto-filled if you registered here)">
       </div>
 
-      <div id="upload-out" class="output muted">Search for a recipient, then select a file.</div>
+      <label>File to send</label>
+      <input type="file" id="upload-file">
+
+      <button class="btn-primary" onclick="uploadDocument()" id="upload-btn">🔒 Encrypt, Sign & Send</button>
+
+      <div class="steps" style="margin-top:0.85rem" id="upload-steps">
+        <div class="step-item" id="s1"><div class="step-dot"></div> Sign filename (Dilithium identity proof)</div>
+        <div class="step-item" id="s2"><div class="step-dot"></div> AES-256-GCM encrypt with quantum key (once)</div>
+        <div class="step-item" id="s3"><div class="step-dot"></div> Kyber-encapsulate AES key per recipient</div>
+        <div class="step-item" id="s4"><div class="step-dot"></div> Dilithium sign each recipient's package</div>
+        <div class="step-item" id="s5"><div class="step-dot"></div> Deliver to each recipient's inbox</div>
+      </div>
+
+      <div id="upload-out" class="output muted">Search for recipients, then select a file.</div>
     </div>
 
   </div>
+
 
   <!-- ══ TAB: SENT ══ -->
   <div class="tab-panel" id="tab-sent">
@@ -873,20 +916,35 @@
 
 <script>
 // ─────────────────────────────────────────────────────────────────────────────
+// API base URL — configurable at runtime so the HTML can be served from
+// anywhere and still point at the FastAPI backend.
+// ─────────────────────────────────────────────────────────────────────────────
+let API = localStorage.getItem('qv_api_url') || '';
+
+function saveApiUrl() {
+  let url = document.getElementById('api-url-input').value.trim().replace(/\/$/, '');
+  API = url;
+  localStorage.setItem('qv_api_url', url);
+  document.getElementById('api-url-status').textContent = url ? '✓ Saved' : '(same origin)';
+  getStatus();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // State
 // ─────────────────────────────────────────────────────────────────────────────
-const API = '';
-
 let _session = {
   userId:   localStorage.getItem('qv_user_id')   || '',
   username: localStorage.getItem('qv_username')  || '',
-  dilSk:    localStorage.getItem('qv_dil_sk')    || '',
-  kyberSk:  localStorage.getItem('qv_kyber_sk')  || '',
+  dilSk:    '',
+  kyberSk:  '',
 };
 
-let _selectedRecipient = null;   // { user_id, username, kyber_public_key, ... }
-let _activeDocId = null;         // doc being verified/decrypted
-let _verifyResult = null;        // last verify response
+// FIX: _sendMode is now the actual mode string the backend expects
+let _sendMode = 'signed';   // 'signed' | 'encrypted'
+
+let _selectedRecipients = [];
+let _activeDocId = null;
+let _verifyResult = null;
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -935,27 +993,31 @@ function saveSession(userId, username, dilSk, kyberSk) {
   _session = { userId, username, dilSk, kyberSk };
   localStorage.setItem('qv_user_id',  userId);
   localStorage.setItem('qv_username', username);
-  // Scope secret keys per user_id, not globally
   if (dilSk)   localStorage.setItem('qv_dil_sk_'   + userId, dilSk);
   if (kyberSk) localStorage.setItem('qv_kyber_sk_' + userId, kyberSk);
 }
 
 function enterApp() {
+  // Restore per-user keys from localStorage
+  const uid = _session.userId;
+  _session.dilSk   = localStorage.getItem('qv_dil_sk_'   + uid) || '';
+  _session.kyberSk = localStorage.getItem('qv_kyber_sk_' + uid) || '';
+
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app-screen').classList.add('show');
   document.getElementById('user-chip').classList.add('show');
   document.getElementById('user-chip-name').textContent = '@' + _session.username;
   document.getElementById('logout-btn').classList.add('show');
 
-  // Autofill dilithium secret key in send tab
   if (_session.dilSk)
     document.getElementById('upload-sk').value = _session.dilSk;
   if (_session.kyberSk)
     document.getElementById('dp-kyber-sk').value = _session.kyberSk;
 
-  // Show Kyber SK reminder if missing
   if (!_session.kyberSk)
     document.getElementById('kyber-reminder').style.display = 'flex';
+  else
+    document.getElementById('kyber-reminder').style.display = 'none';
 
   loadInbox();
 }
@@ -963,8 +1025,6 @@ function enterApp() {
 function logout() {
   localStorage.removeItem('qv_user_id');
   localStorage.removeItem('qv_username');
-  // NOTE: don't delete qv_dil_sk_<id> / qv_kyber_sk_<id> — keep them
-  // so the same user can log back in on this browser and still decrypt.
   _session = { userId:'', username:'', dilSk:'', kyberSk:'' };
   document.getElementById('app-screen').classList.remove('show');
   document.getElementById('auth-screen').style.display = '';
@@ -989,10 +1049,7 @@ async function doLogin() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
-    // Look up keys scoped to THIS user_id only
-    const dilSk   = localStorage.getItem('qv_dil_sk_'   + d.user_id) || '';
-    const kyberSk = localStorage.getItem('qv_kyber_sk_' + d.user_id) || '';
-    saveSession(d.user_id, d.username, dilSk, kyberSk);
+    saveSession(d.user_id, d.username, '', '');
     enterApp();
   } catch(e) {
     showAuthMessage('login-out', '✗ ' + e.message);
@@ -1017,8 +1074,7 @@ async function doRegister() {
     saveSession(d.user_id, d.username, d.dilithium_secret_key, d.kyber_secret_key);
 
     showAuthMessage('reg-out',
-      `✓ Account created! User ID: ${d.user_id}\n` +
-      `Dilithium SK saved in browser.`,
+      `✓ Account created! User ID: ${d.user_id}\nDilithium SK saved in browser.`,
       'success');
 
     showKyberKeyModal(d.username, d.user_id, d.kyber_secret_key);
@@ -1082,7 +1138,6 @@ function showKyberKeyModal(username, userId, kyberSk) {
     enterApp();
   };
 }
- 
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1146,10 +1201,23 @@ async function loadInbox() {
       const div = document.createElement('div');
       div.className = 'inbox-item';
       const date = doc.uploaded_at ? doc.uploaded_at.substring(0,16).replace('T',' ') : '—';
+
+      // FIX: backend stores is_secure as 'signed' | 'encrypted' (not 'true'/'false')
+      const isSigned    = doc.is_secure === 'signed';
+      const isEncrypted = doc.is_secure === 'encrypted';
+      const modeBadge = isSigned
+        ? `<span class="badge badge-green">SIGNED+ENC</span>`
+        : isEncrypted
+          ? `<span class="badge badge-teal">ENCRYPTED</span>`
+          : `<span class="badge badge-red">UNKNOWN</span>`;
+
       div.innerHTML = `
         <div class="inbox-item-header">
           <span class="inbox-filename">📄 ${escHtml(doc.filename)}</span>
-          <span class="badge badge-teal">${escHtml(doc.entropy_source || '')}</span>
+          <div style="display:flex;gap:0.4rem;align-items:center">
+            ${modeBadge}
+            <span class="badge badge-purple">${escHtml(doc.entropy_source || '')}</span>
+          </div>
         </div>
         <div class="inbox-meta">
           From: <strong style="color:var(--text)">@${escHtml(doc.uploader_username)}</strong>
@@ -1157,8 +1225,8 @@ async function loadInbox() {
           &nbsp;·&nbsp; ${date}
         </div>
         <div class="inbox-actions">
-          <button class="btn-ghost btn-sm" onclick="openVerify('${escHtml(doc.document_id)}','${escHtml(doc.uploader_username)}')">
-            🔍 Verify &amp; Decrypt
+          <button class="btn-ghost btn-sm" onclick="openVerify('${escHtml(doc.document_id)}','${escHtml(doc.uploader_username)}','${escHtml(doc.is_secure)}')">
+            ${doc.is_secure === 'signed' ? '🔍 Verify &amp; Decrypt' : '🔑 Decrypt'}
           </button>
         </div>
       `;
@@ -1169,29 +1237,38 @@ async function loadInbox() {
   }
 }
 
-function openVerify(docId, senderUsername) {
+function openVerify(docId, senderUsername, isSecure) {
   _activeDocId = docId;
   _verifyResult = null;
 
-  // Populate verify panel
-  document.getElementById('vp-docid').value  = docId;
-  document.getElementById('vp-sender').value = '@' + senderUsername;
-  document.getElementById('vp-dilpk').value  = '(will be auto-filled from server after verification)';
-  setOut('vp-out', 'Click Verify to check the sender\'s Dilithium signature.', 'muted');
-
-  // Populate decrypt panel
+  // Always populate decrypt panel
   document.getElementById('dp-docid').value = docId;
   if (_session.kyberSk)
     document.getElementById('dp-kyber-sk').value = _session.kyberSk;
-  document.getElementById('sig-status-banner').innerHTML = '';
-  setOut('dp-out', 'Verify the signature first, then decrypt.', 'muted');
 
-  // Show panels
-  document.getElementById('verify-panel').classList.add('show');
-  document.getElementById('decrypt-panel').classList.add('show');
-
-  // Scroll to verify panel
-  document.getElementById('verify-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (isSecure === 'encrypted') {
+    // Encrypted-only: skip verify panel, go straight to decrypt
+    document.getElementById('verify-panel').classList.remove('show');
+    document.getElementById('sig-status-banner').innerHTML =
+      '<div style="background:rgba(62,207,207,0.06);border:1px solid rgba(62,207,207,0.2);border-radius:8px;' +
+      'padding:0.85rem 1rem;font-size:0.76rem;color:var(--accent2);line-height:1.6;margin-bottom:1rem">' +
+      '🔒 Sent in <strong>encrypted</strong> mode — Kyber + AES only, no Dilithium signature.<br>' +
+      'Authenticity cannot be verified. Decrypt only if you trust the sender.</div>';
+    setOut('dp-out', 'Enter your Kyber secret key and decrypt.', 'muted');
+    document.getElementById('decrypt-panel').classList.add('show');
+    document.getElementById('decrypt-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else {
+    // Signed mode: full verify → decrypt flow
+    document.getElementById('vp-docid').value  = docId;
+    document.getElementById('vp-sender').value = '@' + senderUsername;
+    document.getElementById('vp-dilpk').value  = '(auto-filled after verification)';
+    setOut('vp-out', "Click Verify to check the sender's Dilithium signature.", 'muted');
+    document.getElementById('sig-status-banner').innerHTML = '';
+    setOut('dp-out', 'Verify the signature first, then decrypt.', 'muted');
+    document.getElementById('verify-panel').classList.add('show');
+    document.getElementById('decrypt-panel').classList.add('show');
+    document.getElementById('verify-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 
@@ -1223,17 +1300,16 @@ async function verifySignature() {
         `${d.message}`,
         'success'
       );
-      // Update decrypt panel banner
       document.getElementById('sig-status-banner').innerHTML = `
         <div class="success-box">✓ Dilithium signature verified — document is authentic. You may now decrypt.</div>
       `;
     } else {
       setOut('vp-out',
-        `✗ Signature INVALID — document may be tampered or forged.\n\n${d.message}`,
-        'error'
+        `✗ Signature INVALID or document sent without signing.\n\n${d.message}`,
+        'warn'   // warn (not error) since encrypted-only is a valid mode
       );
       document.getElementById('sig-status-banner').innerHTML = `
-        <div class="danger-box">✗ Signature invalid — do NOT decrypt this document.</div>
+        <div class="warn-box">⚠ ${escHtml(d.message)} — you can still attempt decryption if you trust the sender.</div>
       `;
     }
   } catch(e) {
@@ -1270,7 +1346,6 @@ async function decryptDocument() {
       }),
     });
 
-    // Trigger browser download
     const bytes = Uint8Array.from(atob(d.content_b64), c => c.charCodeAt(0));
     const blob  = new Blob([bytes]);
     const a     = document.createElement('a');
@@ -1279,10 +1354,7 @@ async function decryptDocument() {
     a.click();
 
     setOut('dp-out',
-      `✓ ${d.message}\n\n` +
-      `File: ${d.filename}\n` +
-      `From: @${d.uploader_username}\n\n` +
-      `File downloaded to your device.`,
+      `✓ ${d.message}\n\nFile: ${d.filename}\nFrom: @${d.uploader_username}\n\nFile downloaded to your device.`,
       'success'
     );
   } catch(e) {
@@ -1294,7 +1366,52 @@ async function decryptDocument() {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SEND: Recipient search
+// SEND: Mode toggle
+// FIX: mode values are now 'signed' | 'encrypted' matching the backend
+// ─────────────────────────────────────────────────────────────────────────────
+function setSendMode(mode) {
+  _sendMode = mode;
+  const isSigned = (mode === 'signed');
+
+  // Guard: DOM elements may not exist during initial load (auth screen)
+  const encBtn = document.getElementById('mode-btn-encrypted');
+  const sigBtn = document.getElementById('mode-btn-signed');
+  if (encBtn && sigBtn) {
+    if (isSigned) {
+      encBtn.style.background = 'transparent';
+      encBtn.querySelectorAll('span')[0].style.color = 'var(--muted)';
+      encBtn.querySelectorAll('span')[1].style.color = 'var(--muted)';
+      sigBtn.style.background = 'rgba(124,108,252,0.1)';
+      sigBtn.querySelectorAll('span')[0].style.color = 'var(--accent)';
+      sigBtn.querySelectorAll('span')[1].style.color = 'var(--accent)';
+    } else {
+      encBtn.style.background = 'rgba(62,207,207,0.08)';
+      encBtn.querySelectorAll('span')[0].style.color = 'var(--accent2)';
+      encBtn.querySelectorAll('span')[1].style.color = 'var(--accent2)';
+      sigBtn.style.background = 'transparent';
+      sigBtn.querySelectorAll('span')[0].style.color = 'var(--muted)';
+      sigBtn.querySelectorAll('span')[1].style.color = 'var(--muted)';
+    }
+  }
+
+  const skRow   = document.getElementById('upload-sk-row');
+  const s1      = document.getElementById('s1');
+  const s4      = document.getElementById('s4');
+  const upBtn   = document.getElementById('upload-btn');
+  const modeSub = document.getElementById('send-mode-sub');
+
+  if (skRow)   skRow.style.display = isSigned ? '' : 'none';
+  if (s1)      s1.style.display    = isSigned ? '' : 'none';
+  if (s4)      s4.style.display    = isSigned ? '' : 'none';
+  if (upBtn)   upBtn.textContent   = isSigned ? '🔐 Encrypt & Send Securely' : '🔒 Encrypt & Send';
+  if (modeSub) modeSub.textContent = isSigned
+    ? 'AES-256-GCM → Kyber KEM per recipient → Dilithium signed'
+    : 'AES-256-GCM → Kyber KEM per recipient (no signature)';
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEND: Recipient search (multi-select)
 // ─────────────────────────────────────────────────────────────────────────────
 let _searchTimer = null;
 
@@ -1310,7 +1427,8 @@ async function searchRecipients() {
       const data = await apiFetch(`/users/search?q=${encodeURIComponent(q)}`);
       const res = document.getElementById('recipient-results');
 
-      const filtered = data.users.filter(u => u.user_id !== _session.userId);
+      const selectedIds = _selectedRecipients.map(r => r.user_id);
+      const filtered = data.users.filter(u => u.user_id !== _session.userId && !selectedIds.includes(u.user_id));
 
       if (filtered.length === 0) {
         res.innerHTML = `<div style="font-family:var(--mono);font-size:0.7rem;color:var(--muted);padding:0.5rem 0">No users found for "${escHtml(q)}"</div>`;
@@ -1327,9 +1445,9 @@ async function searchRecipients() {
             <div class="recipient-name">@${escHtml(u.username)}</div>
             <div class="recipient-id">${escHtml(u.user_id)}</div>
           </div>
-          <span class="badge badge-teal">Select</span>
+          <span class="badge badge-teal">Add</span>
         `;
-        div.onclick = () => selectRecipient(u);
+        div.onclick = () => addRecipient(u);
         res.appendChild(div);
       });
       res.style.display = 'block';
@@ -1337,18 +1455,35 @@ async function searchRecipients() {
   }, 250);
 }
 
-function selectRecipient(user) {
-  _selectedRecipient = user;
+function addRecipient(user) {
+  if (_selectedRecipients.some(r => r.user_id === user.user_id)) return;
+  _selectedRecipients.push(user);
   document.getElementById('recipient-results').style.display = 'none';
   document.getElementById('recipient-search').value = '';
-  document.getElementById('selected-recipient-name').textContent = '@' + user.username;
-  document.getElementById('selected-recipient-id').textContent = user.user_id;
-  document.getElementById('selected-recipient-banner').style.display = 'block';
+  renderSelectedRecipients();
 }
 
-function clearRecipient() {
-  _selectedRecipient = null;
-  document.getElementById('selected-recipient-banner').style.display = 'none';
+function removeRecipient(userId) {
+  _selectedRecipients = _selectedRecipients.filter(r => r.user_id !== userId);
+  renderSelectedRecipients();
+}
+
+function renderSelectedRecipients() {
+  const banner = document.getElementById('selected-recipients-banner');
+  const list = document.getElementById('selected-recipients-list');
+  if (_selectedRecipients.length === 0) {
+    banner.style.display = 'none';
+    return;
+  }
+  list.innerHTML = _selectedRecipients.map(r =>
+    `<strong>@${escHtml(r.username)}</strong> <span style="color:var(--muted);cursor:pointer" onclick="removeRecipient('${escHtml(r.user_id)}')">✕</span>`
+  ).join(', &nbsp;');
+  banner.style.display = 'block';
+}
+
+function clearRecipients() {
+  _selectedRecipients = [];
+  document.getElementById('selected-recipients-banner').style.display = 'none';
   document.getElementById('recipient-search').value = '';
   document.getElementById('recipient-results').style.display = 'none';
 }
@@ -1356,17 +1491,19 @@ function clearRecipient() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SEND: Upload document
+// FIX: send 'mode' field ('signed'|'encrypted') instead of 'secure' ('true'/'false')
+// FIX: only send uploader_secret_key and uploader_signature in 'signed' mode
 // ─────────────────────────────────────────────────────────────────────────────
 async function uploadDocument() {
   const sk   = document.getElementById('upload-sk').value.trim();
   const file = document.getElementById('upload-file').files[0];
 
-  if (!_selectedRecipient) {
-    setOut('upload-out', '✗ Search for and select a recipient first.', 'error');
+  if (_selectedRecipients.length === 0) {
+    setOut('upload-out', '✗ Search for and add at least one recipient.', 'error');
     return;
   }
-  if (!sk) {
-    setOut('upload-out', '✗ Enter your Dilithium secret key.', 'error');
+  if (_sendMode === 'signed' && !sk) {
+    setOut('upload-out', '✗ Enter your Dilithium secret key (required for Signed mode).', 'error');
     return;
   }
   if (!file) {
@@ -1374,48 +1511,65 @@ async function uploadDocument() {
     return;
   }
 
+  // Reset step indicators
   ['s1','s2','s3','s4','s5'].forEach(id =>
     document.getElementById(id).className = 'step-item');
 
   loading('upload-out', 'Starting pipeline…');
 
   try {
-    document.getElementById('s1').className = 'step-item active';
-    const sigRes = await apiFetch('/pqc/sign', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret_key: sk, message: file.name }),
-    });
-    document.getElementById('s1').className = 'step-item done';
-    document.getElementById('s2').className = 'step-item active';
-
     const formData = new FormData();
     formData.append('file', file);
     formData.append('uploader_id', _session.userId);
-    formData.append('uploader_secret_key', sk);
-    formData.append('uploader_signature', sigRes.signature);
-    formData.append('recipient_id', _selectedRecipient.user_id);
+    formData.append('recipient_ids', _selectedRecipients.map(r => r.user_id).join(','));
+    formData.append('mode', _sendMode);   // FIX: was 'secure'='true'/'false'
+
+    if (_sendMode === 'signed') {
+      document.getElementById('s1').className = 'step-item active';
+
+      // Sign the filename for identity verification
+      const sigRes = await apiFetch('/pqc/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret_key: sk, message: file.name }),
+      });
+
+      document.getElementById('s1').className = 'step-item done';
+      document.getElementById('s2').className = 'step-item active';
+
+      formData.append('uploader_secret_key', sk);
+      formData.append('uploader_signature', sigRes.signature);
+    } else {
+      // 'encrypted' mode: no SK/signature fields needed
+      document.getElementById('s2').className = 'step-item active';
+    }
 
     const d = await apiFetch('/document/upload', { method: 'POST', body: formData });
 
-    document.getElementById('s2').className = 'step-item done';
-    document.getElementById('s3').className = 'step-item done';
-    document.getElementById('s4').className = 'step-item done';
-    document.getElementById('s5').className = 'step-item done';
+    ['s2','s3','s4','s5'].forEach(id => document.getElementById(id).className = 'step-item done');
 
-    setOut('upload-out',
-      `✓ Sent to @${d.recipient_username}!\n\n` +
-      `Document ID:    ${d.document_id}\n` +
-      `File:           ${d.original_filename}\n` +
-      `Entropy source: ${d.entropy_source}\n\n` +
-      `Kyber CT (first 40):      ${d.aes_key_encapsulated.substring(0,40)}…\n` +
-      `Dilithium sig (first 40): ${d.package_signature.substring(0,40)}…\n\n` +
-      `✓ Raw AES key NOT stored on server.`,
-      'success'
-    );
+    if (_sendMode === 'signed') {
+      setOut('upload-out',
+        `✓ ${d.message}\n\n` +
+        `File:           ${d.original_filename}\n` +
+        `Entropy source: ${d.entropy_source}\n\n` +
+        `Kyber CT (first 40):      ${(d.aes_key_encapsulated||'').substring(0,40)}…\n` +
+        `Dilithium sig (first 40): ${(d.package_signature||'').substring(0,40)}…\n\n` +
+        `✓ Raw AES key NOT stored on server.`,
+        'success'
+      );
+    } else {
+      setOut('upload-out',
+        `✓ ${d.message}\n\n` +
+        `File:           ${d.original_filename}\n` +
+        `Entropy source: ${d.entropy_source}\n\n` +
+        `Kyber CT (first 40): ${(d.aes_key_encapsulated||'').substring(0,40)}…\n\n` +
+        `✓ Encrypted (AES+Kyber). No Dilithium signature in this mode.`,
+        'success'
+      );
+    }
 
-    // Clear form
-    clearRecipient();
+    clearRecipients();
     document.getElementById('upload-file').value = '';
   } catch(e) {
     setOut('upload-out', '✗ Error: ' + e.message, 'error');
@@ -1441,14 +1595,19 @@ async function loadSent() {
       return;
     }
     let html = `<table class="doc-table"><thead><tr>
-      <th>Document ID</th><th>Filename</th><th>To</th><th>Date</th>
+      <th>Document ID</th><th>Filename</th><th>To</th><th>Mode</th><th>Date</th>
     </tr></thead><tbody>`;
     data.documents.forEach(doc => {
       const date = doc.uploaded_at ? doc.uploaded_at.substring(0,16).replace('T',' ') : '—';
+      // FIX: is_secure is 'signed' | 'encrypted'
+      const modeLabel = doc.is_secure === 'signed'
+        ? '<span class="badge badge-green">SIGNED</span>'
+        : '<span class="badge badge-teal">ENC ONLY</span>';
       html += `<tr>
         <td style="color:var(--accent)">${escHtml(doc.document_id)}</td>
         <td>${escHtml(doc.filename)}</td>
         <td>@${escHtml(doc.recipient_username)}</td>
+        <td>${modeLabel}</td>
         <td style="color:var(--muted)">${date}</td>
       </tr>`;
     });
@@ -1493,7 +1652,10 @@ async function getStatus() {
       d.seed_initialized ? 'success' : 'error'
     );
     updateStatusBar(d.entropy_source);
-  } catch(e) { setOut('sys-out', '✗ ' + e.message, 'error'); }
+  } catch(e) {
+    // silently fail on initial load if backend not yet reachable
+    setOut('sys-out', '✗ ' + e.message + '\n\nMake sure the backend URL is set correctly above.', 'error');
+  }
 }
 
 
@@ -1513,7 +1675,16 @@ function escHtml(str) {
 // Init
 // ─────────────────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
+  // Restore saved API URL
+  const savedUrl = localStorage.getItem('qv_api_url') || '';
+  document.getElementById('api-url-input').value = savedUrl;
+  if (savedUrl) {
+    document.getElementById('api-url-status').textContent = '✓ ' + savedUrl;
+  }
+
+  setSendMode('signed');
   getStatus();
+
   // If we have a saved session, jump straight into the app
   if (_session.userId && _session.username) {
     enterApp();

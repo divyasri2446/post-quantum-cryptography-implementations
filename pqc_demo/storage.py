@@ -41,6 +41,8 @@ class DocumentModel(Base):
     __tablename__ = "documents"
 
     document_id = Column(String, primary_key=True)
+    group_id = Column(String, index=True)        # links multiple recipient copies of the same upload
+    is_secure = Column(String, default="true")   # "true" = encrypted+signed, "false" = plain demo send
     ciphertext = Column(String)
     nonce = Column(String)
     tag = Column(String)
@@ -79,6 +81,8 @@ def _user_to_dict(u: UserModel) -> dict:
 
 def _doc_to_dict(d: DocumentModel) -> dict:
     return {
+        "group_id": d.group_id,
+        "is_secure": d.is_secure,
         "ciphertext": d.ciphertext,
         "nonce": d.nonce,
         "tag": d.tag,

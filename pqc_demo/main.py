@@ -263,103 +263,132 @@ async def pqc_sign(req: SignRequest):
 async def upload_document(
     file: UploadFile = File(...),
     uploader_id: str = Form(...),
-    uploader_secret_key: str = Form(...),
-    uploader_signature: str = Form(...),
-    recipient_id: str = Form(...),          # recipient's user_id
+    uploader_secret_key: str = Form(None),       # required for "signed" mode only
+    uploader_signature: str = Form(None),        # required for "signed" mode only
+    recipient_ids: str = Form(...),               # comma-separated list of recipient user_ids
+    mode: str = Form("signed"),                  # "encrypted" = AES+Kyber only | "signed" = AES+Kyber+Dilithium
 ):
     """
-    Full upload pipeline:
-    1. Verify uploader identity (Dilithium sig over filename)
-    2. Lookup recipient's Kyber public key by user_id
-    3. AES-256-GCM encrypt (quantum key + nonce)
-    4. Kyber-encapsulate AES key TO recipient's public key
-    5. Dilithium sign the encrypted package
-    6. Store; notify recipient's inbox
+    Upload pipeline — supports TWO modes:
+      - "signed"    (mode="signed"):    full AES-256-GCM + Kyber encapsulation + Dilithium signature
+      - "encrypted" (mode="encrypted"): AES-256-GCM + Kyber encapsulation, NO Dilithium signature
+
+    Plain/unencrypted send is intentionally removed — all documents are at minimum encrypted.
+
+    For sends to MULTIPLE recipients (Kyber is single-recipient-per-encapsulation):
+      1. Encrypt the file ONCE with a fresh AES key (ciphertext identical for everyone)
+      2. For EACH recipient: Kyber-encapsulate that SAME AES key to their public key
+         (different ciphertext per recipient, since each has a different public key)
+      3. If mode="signed": sign EACH recipient's package separately (signed bytes differ per recipient,
+         since the wrapped key differs)
+      4. Store one document row per recipient, all sharing the same group_id
     """
+    if mode not in ("encrypted", "signed"):
+        raise HTTPException(status_code=400, detail="mode must be 'encrypted' or 'signed'.")
+    secure = True  # both modes are encrypted; 'signed' adds Dilithium on top
+    recipient_id_list = [r.strip() for r in recipient_ids.split(",") if r.strip()]
+    if not recipient_id_list:
+        raise HTTPException(status_code=400, detail="No recipients specified.")
 
-    # Resolve user_id → username for both parties
     uploader_username = user_id_to_username.get(uploader_id)
-    recipient_username = user_id_to_username.get(recipient_id)
-
     if not uploader_username or uploader_username not in users:
         raise HTTPException(status_code=404, detail="Uploader not found. Register first.")
-    if not recipient_username or recipient_username not in users:
-        raise HTTPException(status_code=404, detail="Recipient not found.")
-
     uploader_info = users[uploader_username]
-    recipient_info = users[recipient_username]
 
-    # Step 1: Verify uploader identity
-    identity_check = dilithium_verify(
-        public_key_hex=uploader_info["dilithium_public_key"],
-        message=file.filename.encode(),
-        signature_hex=uploader_signature,
-    )
-    if not identity_check["valid"]:
-        raise HTTPException(status_code=403, detail="Identity verification failed. Upload rejected.")
+    if mode == "signed":
+        if not uploader_secret_key:
+            raise HTTPException(status_code=400, detail="Dilithium secret key required for 'signed' mode.")
+        identity_check = dilithium_verify(
+            public_key_hex=uploader_info["dilithium_public_key"],
+            message=file.filename.encode(),
+            signature_hex=uploader_signature or "",
+        )
+        if not identity_check["valid"]:
+            raise HTTPException(status_code=403, detail="Identity verification failed. Upload rejected.")
 
-    # Step 2: Get recipient's Kyber public key
-    recipient_kyber_pubkey = recipient_info["kyber_public_key"]
-
-    # Step 3: Read + AES-256-GCM encrypt
     file_bytes = await file.read()
-    enc = aes_encrypt(file_bytes)
-    aes_key_bytes = bytes.fromhex(enc["aes_key"])
+    group_id = make_id(6)
+    created_doc_ids = []
+    last_recipient_username = None
 
-    # Step 4: Kyber-encapsulate AES key to recipient
-    encap = kyber_encapsulate(recipient_kyber_pubkey)
-    kyber_shared = bytes.fromhex(encap["shared_secret"])
-    wrapped_aes_key = bytes(a ^ b for a, b in zip(aes_key_bytes, kyber_shared[:32]))
+    if secure:
+        enc = aes_encrypt(file_bytes)
+        aes_key_bytes = bytes.fromhex(enc["aes_key"])
 
-    # Step 5: Dilithium sign the package
-    package_bytes = (
-        bytes.fromhex(enc["ciphertext"]) +
-        bytes.fromhex(enc["tag"]) +
-        bytes.fromhex(encap["ciphertext"]) +
-        wrapped_aes_key
-    )
-    package_sig = dilithium_sign(
-        secret_key_hex=uploader_secret_key,
-        message=package_bytes,
-    )
+        for recipient_id in recipient_id_list:
+            recipient_username = user_id_to_username.get(recipient_id)
+            if not recipient_username or recipient_username not in users:
+                continue
+            recipient_info = users[recipient_username]
 
-    # Step 6: Store
-    doc_id = make_id(6)
-    documents[doc_id] = {
-        "ciphertext": enc["ciphertext"],
-        "nonce": enc["nonce"],
-        "tag": enc["tag"],
-        "kyber_ciphertext": encap["ciphertext"],
-        "wrapped_aes_key": wrapped_aes_key.hex(),
-        "package_signature": package_sig["signature"],
-        "dilithium_public_key": uploader_info["dilithium_public_key"],
-        "recipient_id": recipient_id,
-        "recipient_username": recipient_username,
-        "uploader_id": uploader_id,
-        "uploader_username": uploader_username,
-        "filename": file.filename,
-        "uploaded_at": datetime.datetime.utcnow().isoformat(),
-        "entropy_source": get_entropy_source(),
-    }
+            encap = kyber_encapsulate(recipient_info["kyber_public_key"])
+            kyber_shared = bytes.fromhex(encap["shared_secret"])
+            wrapped_aes_key = bytes(a ^ b for a, b in zip(aes_key_bytes, kyber_shared[:32]))
+
+            if mode == "signed":
+                package_bytes = (
+                    bytes.fromhex(enc["ciphertext"]) +
+                    bytes.fromhex(enc["tag"]) +
+                    bytes.fromhex(encap["ciphertext"]) +
+                    wrapped_aes_key
+                )
+                package_sig = dilithium_sign(secret_key_hex=uploader_secret_key, message=package_bytes)
+            else:
+                package_sig = {"signature": ""}   # encrypted mode — no signature
+
+            doc_id = hashlib.sha256(
+                bytes.fromhex(enc["ciphertext"]) +
+                bytes.fromhex(enc["tag"]) +
+                bytes.fromhex(enc["nonce"]) +
+                bytes.fromhex(encap["ciphertext"]) +
+                recipient_id.encode()
+            ).hexdigest()
+
+            documents[doc_id] = {
+                "group_id": group_id,
+                "is_secure": mode,   # "signed" | "encrypted"
+                "ciphertext": enc["ciphertext"],
+                "nonce": enc["nonce"],
+                "tag": enc["tag"],
+                "kyber_ciphertext": encap["ciphertext"],
+                "wrapped_aes_key": wrapped_aes_key.hex(),
+                "package_signature": package_sig["signature"],
+                "dilithium_public_key": uploader_info["dilithium_public_key"],
+                "recipient_id": recipient_id,
+                "recipient_username": recipient_username,
+                "uploader_id": uploader_id,
+                "uploader_username": uploader_username,
+                "filename": file.filename,
+                "uploaded_at": datetime.datetime.utcnow().isoformat(),
+                "entropy_source": get_entropy_source(),
+            }
+            created_doc_ids.append(doc_id)
+            last_recipient_username = recipient_username
+
+
+
+    if not created_doc_ids:
+        raise HTTPException(status_code=404, detail="No valid recipients found.")
 
     return UploadResponse(
-        document_id=doc_id,
-        recipient_id=recipient_id,
-        recipient_username=recipient_username,
+        document_id=created_doc_ids[0],
+        recipient_id=recipient_id_list[0],
+        recipient_username=last_recipient_username or "",
         uploader_id=uploader_id,
         uploader_username=uploader_username,
-        aes_key_encapsulated=encap["ciphertext"],
-        kyber_public_key_used=recipient_kyber_pubkey,
-        nonce=enc["nonce"],
-        tag=enc["tag"],
-        ciphertext_preview=enc["ciphertext"][:40],
-        package_signature=package_sig["signature"],
+        aes_key_encapsulated=documents[created_doc_ids[0]].get("kyber_ciphertext", ""),
+        kyber_public_key_used="",
+        nonce=documents[created_doc_ids[0]].get("nonce", ""),
+        tag=documents[created_doc_ids[0]].get("tag", ""),
+        ciphertext_preview=documents[created_doc_ids[0]]["ciphertext"][:40],
+        package_signature=documents[created_doc_ids[0]].get("package_signature", ""),
         dilithium_public_key=uploader_info["dilithium_public_key"],
         original_filename=file.filename,
-        entropy_source=get_entropy_source(),
+        entropy_source=documents[created_doc_ids[0]]["entropy_source"],
         message=(
-            f"Document '{file.filename}' sent to @{recipient_username}. "
-            f"Document ID: {doc_id}."
+            f"Document '{file.filename}' sent to {len(created_doc_ids)} recipient(s) "
+            f"(mode: {'encrypted + signed' if mode == 'signed' else 'encrypted only'}). "
+            f"Group ID: {group_id}."
         ),
     )
 
@@ -379,6 +408,7 @@ async def get_inbox(recipient_id: str):
                 uploader_username=doc.get("uploader_username", doc["uploader_id"]),
                 uploaded_at=doc.get("uploaded_at", ""),
                 entropy_source=doc.get("entropy_source", ""),
+                is_secure=doc.get("is_secure", "true"),
             ))
     return InboxResponse(recipient_id=recipient_id, documents=result)
 
@@ -397,6 +427,7 @@ async def get_sent(uploader_id: str):
                 recipient_id=doc["recipient_id"],
                 recipient_username=doc.get("recipient_username", doc["recipient_id"]),
                 uploaded_at=doc.get("uploaded_at", ""),
+                is_secure=doc.get("is_secure", "true"),
             ))
     return SentResponse(uploader_id=uploader_id, documents=result)
 
@@ -418,6 +449,22 @@ async def verify_document_signature(req: VerifySignatureRequest):
 
     if req.recipient_id != doc["recipient_id"]:
         raise HTTPException(status_code=403, detail="You are not the intended recipient.")
+
+    if doc.get("is_secure") == "encrypted":
+        return VerifySignatureResponse(
+            document_id=req.document_id,
+            signature_valid=False,
+            uploader_id=doc["uploader_id"],
+            uploader_username=doc.get("uploader_username", doc["uploader_id"]),
+            uploader_dilithium_public_key=doc["dilithium_public_key"],
+            filename=doc["filename"],
+            uploaded_at=doc.get("uploaded_at", ""),
+            message=(
+                "ℹ This document was sent in 'encrypted' mode — "
+                "it is Kyber+AES encrypted but carries no Dilithium signature. "
+                "Authenticity cannot be verified; proceed to decrypt only if you trust the sender."
+            ),
+        )
 
     package_bytes = (
         bytes.fromhex(doc["ciphertext"]) +
@@ -454,6 +501,9 @@ async def decrypt_document(req: DecryptRequest):
     """
     Step 2 of receiving a document (after verify).
     Kyber decapsulate → recover AES key → AES-256-GCM decrypt → return file.
+
+    NOTE: if the document was sent via "Send" (insecure demo mode), it was
+    never encrypted in the first place — short-circuit and return it as-is.
     """
     if req.document_id not in documents:
         raise HTTPException(status_code=404, detail="Document not found.")
