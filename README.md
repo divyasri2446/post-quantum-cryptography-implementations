@@ -28,9 +28,6 @@ All three are quantum-resistant — secure against both classical and quantum co
 
 ## QuantumVault — Quantum-Safe Document Portal
 
-### Live Demo
-🔗 **[quantumvault-production.up.railway.app](https://quantumvault-production.up.railway.app)**
-
 ### What it does
 
 QuantumVault lets users send encrypted files to each other such that:
